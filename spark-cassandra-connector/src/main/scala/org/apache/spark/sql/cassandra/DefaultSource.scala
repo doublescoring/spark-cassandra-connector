@@ -1,13 +1,13 @@
 package org.apache.spark.sql.cassandra
 
-import scala.collection.mutable
+import java.util.Locale
 
+import scala.collection.mutable
 import org.apache.spark.sql.SaveMode._
 import org.apache.spark.sql.cassandra.DefaultSource._
 import org.apache.spark.sql.sources.{BaseRelation, CreatableRelationProvider, RelationProvider, SchemaRelationProvider}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{DataFrame, SQLContext, SaveMode}
-
 import com.datastax.spark.connector.util.Logging
 import com.datastax.spark.connector.cql.{AuthConfFactory, CassandraConnectorConf, DefaultAuthConfFactory}
 import com.datastax.spark.connector.rdd.ReadConf
@@ -110,9 +110,9 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
   }
 }
 
-/** Store data source options */
 case class CassandraSourceOptions(
   pushdown: Boolean = true,
+  confirmTruncate: Boolean = false,
   camelcase: Boolean = false,
   cassandraConfs: Map[String, String] = Map.empty)
 
@@ -122,6 +122,7 @@ object DefaultSource {
   val CassandraDataSourceClusterNameProperty = "cluster"
   val CassandraDataSourceUserDefinedSchemaNameProperty = "schema"
   val CassandraDataSourcePushdownEnableProperty = "pushdown"
+  val CassandraDataSourceConfirmTruncateProperty = "confirm.truncate"
   val CassandraDataSourceCamelcaseProperty = "camelcase"
   val CassandraDataSourceProviderPackageName = DefaultSource.getClass.getPackage.getName
   val CassandraDataSourceProviderClassName = CassandraDataSourceProviderPackageName + ".DefaultSource"
@@ -133,10 +134,11 @@ object DefaultSource {
     val keyspaceName = parameters(CassandraDataSourceKeyspaceNameProperty)
     val clusterName = parameters.get(CassandraDataSourceClusterNameProperty)
     val pushdown : Boolean = parameters.getOrElse(CassandraDataSourcePushdownEnableProperty, "true").toBoolean
+    val confirmTruncate : Boolean = parameters.getOrElse(CassandraDataSourceConfirmTruncateProperty, "false").toBoolean
     val camelcase : Boolean = parameters.getOrElse(CassandraDataSourceCamelcaseProperty, "false").toBoolean
     val cassandraConfs = parameters
-
-    (TableRef(tableName, keyspaceName, clusterName), CassandraSourceOptions(pushdown, camelcase, cassandraConfs))
+    val cassandraSourceOptions = CassandraSourceOptions(pushdown, confirmTruncate, camelcase, cassandraConfs)
+    (TableRef(tableName, keyspaceName, clusterName), cassandraSourceOptions)
   }
 
   val confProperties = ReadConf.Properties.map(_.name) ++

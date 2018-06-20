@@ -3,6 +3,7 @@ package com.datastax.spark.connector.types
 import java.math.BigInteger
 import java.net.InetAddress
 import java.nio.ByteBuffer
+import java.sql.Timestamp
 import java.text.SimpleDateFormat
 import java.util.{Date, GregorianCalendar, UUID}
 
@@ -54,9 +55,14 @@ class TypeConverterTest {
   @Test
   def testLong() {
     val c = TypeConverter.forType[Long]
+    val instant = java.time.Instant.ofEpochMilli(12345L)
     assertEquals(12345L, c.convert("12345"))
     assertEquals(12345L, c.convert(12345))
     assertEquals(12345L, c.convert(12345L))
+    assertEquals(12345L, c.convert(instant))
+    assertEquals(12345L, c.convert(Date.from(instant)))
+    assertEquals(12345L, c.convert(java.time.LocalTime.ofNanoOfDay(12345L)))
+    assertEquals(12345L, c.convert(java.time.LocalDate.ofEpochDay(12345L)))
   }
 
   @Test
@@ -136,14 +142,70 @@ class TypeConverterTest {
     val dayOnlyStr = "2014-04-23"
     val localDate = LocalDate.fromYearMonthDay(2014, 4, 23)
     val jodaLocalDate = new org.joda.time.LocalDate(2014, 4, 23)
+    val javaLocalDate = java.time.LocalDate.of(2014, 4, 23)
 
     val date = new SimpleDateFormat("yyyy-MM-dd HH:mm:ssZ").parse(dateStr)
     val dateDayOnly = new SimpleDateFormat("yyyy-MM-dd").parse(dayOnlyStr)
 
     assertEquals(dateDayOnly, c.convert(localDate))
     assertEquals(dateDayOnly, c.convert(jodaLocalDate))
+    assertEquals(dateDayOnly, c.convert(javaLocalDate))
     assertEquals(date, c.convert(dateStr))
   }
+
+  @Test
+  def testTimestamp() {
+    val c = TypeConverter.forType[Timestamp]
+    val dateStr = "2014-04-23 11:21:32+0100"
+    val dayOnlyStr = "2014-04-23"
+    val localDate = LocalDate.fromYearMonthDay(2014, 4, 23)
+    val jodaLocalDate = new org.joda.time.LocalDate(2014, 4, 23)
+    val javaLocalDate = java.time.LocalDate.of(2014, 4, 23)
+    val date = Timestamp.from(new SimpleDateFormat("yyyy-MM-dd HH:mm:ssZ").parse(dateStr).toInstant)
+    val dateDayOnly = Timestamp.from(new SimpleDateFormat("yyyy-MM-dd").parse(dayOnlyStr).toInstant)
+
+    assertEquals(dateDayOnly, c.convert(localDate))
+    assertEquals(dateDayOnly, c.convert(jodaLocalDate))
+    assertEquals(dateDayOnly, c.convert(javaLocalDate))
+    assertEquals(date, c.convert(dateStr))
+  }
+
+  @Test
+  def testParsableDate() {
+    val c = TypeConverter.forType[Date]
+
+    val validDates = List(
+      "1986-01-02 21:05",
+      "1986-01-02 21:05+1000",
+      "1986-01-02 21:05+10:00",
+      "1986-01-02 21:05Z",
+      "1986-01-02 21:05:07",
+      "1986-01-02 21:05:07+1000",
+      "1986-01-02 21:05:07+10:00",
+      "1986-01-02 21:05:07Z",
+      "1986-01-02 21:05:07.123",
+      "1986-01-02 21:05:07.123+1000",
+      "1986-01-02 21:05:07.123+10:00",
+      "1986-01-02 21:05:07.123Z",
+      "1986-01-02T21:05",
+      "1986-01-02T21:05+1000",
+      "1986-01-02T21:05+10:00",
+      "1986-01-02T21:05Z",
+      "1986-01-02T21:05:07",
+      "1986-01-02T21:05:07+1000",
+      "1986-01-02T21:05:07+10:00",
+      "1986-01-02T21:05Z",
+      "1986-01-02T21:05:07.123",
+      "1986-01-02T21:05:07.123+1000",
+      "1986-01-02T21:05:07.123Z",
+      "1986-01-02",
+      "1986-01-02+1000",
+      "1986-01-02Z",
+      "1986")
+
+    validDates.foreach(c.convert)
+  }
+
 
   @Test
   def testSqlDate(): Unit = {
@@ -153,13 +215,20 @@ class TypeConverterTest {
 
     val localDate = LocalDate.fromYearMonthDay(2014,4,23)
     val jodaLocalDate = new org.joda.time.LocalDate(2014, 4, 23)
+    val javaLocalDate = java.time.LocalDate.of(2014, 4, 23)
 
     val dateFormat = new SimpleDateFormat("yyyy-MM-dd")
     val utilDate = dateFormat.parse("2014-04-23")
 
+    assertEquals(targetDate, c.convert("2014-04-23"))
     assertEquals(targetDate, c.convert(localDate))
     assertEquals(targetDate, c.convert(jodaLocalDate))
+    assertEquals(targetDate, c.convert(javaLocalDate))
     assertEquals(targetDate, c.convert(utilDate))
+
+    val targetYear = java.sql.Date.valueOf("2014-01-01")
+    assertEquals(targetYear, c.convert("2014"))
+
   }
 
   @Test
@@ -227,6 +296,14 @@ class TypeConverterTest {
     assertEquals(testDate, c.convert(java.sql.Date.valueOf("1985-08-03")))
     assertEquals(testDate, c.convert(new DateTime(date)))
     assertEquals(testDate, c.convert(new org.joda.time.LocalDate(1985, 8, 3)))
+    assertEquals(testDate, c.convert(java.time.LocalDate.of(1985, 8, 3)))
+  }
+
+  @Test
+  def testYearLocalDate(): Unit = {
+    val c = TypeConverter.forType[LocalDate]
+    val testDate = LocalDate.fromYearMonthDay(1985, 1, 1)
+    assertEquals(testDate, c.convert("1985"))
   }
 
   @Test
@@ -236,6 +313,46 @@ class TypeConverterTest {
     val date = new Date(1482)
     assertEquals(targetTime, c.convert(targetTime))
     assertEquals(targetTime, c.convert(date))
+  }
+
+  @Test
+  def testJavaLocalDate(): Unit = {
+    val c = TypeConverter.forType(classOf[java.time.LocalDate])
+    val testDate = java.time.LocalDate.of(1985, 8, 3)
+    val dateFormat = new SimpleDateFormat("yyyy-MM-dd")
+    val date = dateFormat.parse("1985-08-03")
+    assertEquals(testDate, c.convert("1985-08-03"))
+    assertEquals(testDate, c.convert(5693))
+    assertEquals(testDate, c.convert(date))
+    assertEquals(testDate, c.convert(java.sql.Date.valueOf("1985-08-03")))
+    assertEquals(testDate, c.convert(new DateTime(date)))
+    assertEquals(testDate, c.convert(new org.joda.time.LocalDate(1985, 8, 3)))
+  }
+
+  @Test
+  def testJavaLocalTime(): Unit = {
+    val c = TypeConverter.forType(classOf[java.time.LocalTime])
+    val testTime = java.time.LocalTime.parse("10:15:30")
+    assertEquals(testTime, c.convert(testTime.toNanoOfDay))
+    assertEquals(testTime, c.convert("10:15:30"))
+  }
+
+  @Test
+  def testJavaDurationTypeTag(): Unit = {
+    val c = TypeConverter.forType(classOf[java.time.Duration])
+    val testDuration = java.time.Duration.parse("PT10S")
+    assertEquals(testDuration, c.convert(10000))
+    assertEquals(testDuration, c.convert("PT10S"))
+  }
+
+  @Test
+  def testJavaInstantTypeTag(): Unit = {
+    val c = TypeConverter.forType(classOf[java.time.Instant])
+    val testInstant = java.time.Instant.parse("2007-12-03T10:15:30.00Z")
+    val ms = testInstant.toEpochMilli
+    assertEquals(testInstant, c.convert(ms))
+    assertEquals(testInstant, c.convert(new Timestamp(ms)))
+    assertEquals(testInstant, c.convert("2007-12-03T10:15:30.00Z"))
   }
 
   @Test
@@ -523,5 +640,23 @@ class TypeConverterTest {
     assertEquals(2, chainedConverter2.convert("2"))
   }
 
-
+  @Test
+  def testJavaMapping (): Unit = {
+    assertEquals(TypeConverter.JavaBooleanConverter, TypeConverter.forType(classOf[java.lang.Boolean]))
+    assertEquals(TypeConverter.JavaShortConverter, TypeConverter.forType(classOf[java.lang.Short]))
+    assertEquals(TypeConverter.JavaIntConverter, TypeConverter.forType(classOf[java.lang.Integer]))
+    assertTrue(TypeConverter.forType(classOf[java.lang.Long]).isInstanceOf[ChainedTypeConverter[_]])
+    assertEquals(TypeConverter.JavaFloatConverter, TypeConverter.forType(classOf[java.lang.Float]))
+    assertEquals(TypeConverter.JavaDoubleConverter, TypeConverter.forType(classOf[java.lang.Double]))
+    assertEquals(TypeConverter.JavaBigDecimalConverter, TypeConverter.forType(classOf[java.math.BigDecimal]))
+    assertEquals(TypeConverter.JavaBigIntegerConverter, TypeConverter.forType(classOf[java.math.BigInteger]))
+    assertEquals(TypeConverter.JavaLocalDateConverter, TypeConverter.forType(classOf[java.time.LocalDate]))
+    assertEquals(TypeConverter.JavaLocalTimeConverter, TypeConverter.forType(classOf[java.time.LocalTime]))
+    assertEquals(TypeConverter.JavaDurationConverter, TypeConverter.forType(classOf[java.time.Duration]))
+    assertEquals(TypeConverter.JavaInstantConverter, TypeConverter.forType(classOf[java.time.Instant]))
+    assertEquals(TypeConverter.StringConverter, TypeConverter.forType(classOf[java.lang.String]))
+    assertEquals(TypeConverter.UUIDConverter, TypeConverter.forType(classOf[java.util.UUID]))
+    assertEquals(TypeConverter.InetAddressConverter, TypeConverter.forType(classOf[java.net.InetAddress]))
+    assertEquals(TypeConverter.ByteArrayConverter, TypeConverter.forType(classOf[Array[Byte]]))
+  }
 }

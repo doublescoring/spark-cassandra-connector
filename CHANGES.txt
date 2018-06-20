@@ -1,3 +1,50 @@
+
+2.3.0
+ * Support for Spark 2.3.0 (SPARKC-530)
+ * Pushdown filter for composite partition keys doesn't work (SPARKC-490)
+ * Removal of Scala-2.10 support
+
+********************************************************************************
+
+2.0.8
+ * Allow non-cluster prefixed options in sqlConf (SPARKC-531)
+ * Change Str Literal Match to Be Greedy (SPARKC-532)
+ * Restore support for various timezone formats to TimestampParser (SPARKC-533)
+ * UDT converters optimization (SPARKC-536)
+
+2.0.7
+ * Adds Timestamp, Improve Conversion Perf (SPARKC-522)
+ * Allow setting spark.cassandra.concurrent.reads (SPARKC-520)
+ * Allow splitCount to be set for Dataframes (SPARKC-527)
+
+2.0.6
+ * Includes all patches up to 1.6.10
+
+2.0.5
+ * Allow IN predicates for composite partition keys and clustering keys to be pushed down to Cassandra (SPARKC-490)
+ * Allow 'YYYY' format LocalDate
+ * Add metrics for write batch Size (SPARKC-501)
+ * Type Converters for java.time.localdate (SPARKC-495)
+
+2.0.4
+ * Includes partches up to 1.6.9
+ * Retry PoolBusy Exceptions, Throttle JWCT Calls (SPARKC-503) 
+
+2.0.3
+ * Includes patches up to 1.6.8
+
+2.0.2
+ * Protect against Size Estimate Overflows (SPARKC-492)
+ * Add java.time classes support to converters and sparkSQL(SPARKC-491)
+ * Allow Writes to Static Columnns and Partition Keys (SPARKC-470)
+
+2.0.1
+ * Refactor Custom Scan Method (SPARKC-481)
+
+2.0.0
+ * Upgrade driver version for 2.0.0 Release to 3.1.4 (SPARKC-474)
+ * Extend SPARKC-383 to All Row Readers (SPARKC-473)
+
 2.0.0 RC1
  * Includes all patches up to 1.6.5
  * Automatic adjustment of Max Connections (SPARKC-471)
@@ -35,6 +82,31 @@
     - Update plugins and Scala version
 
 ********************************************************************************
+
+1.6.11
+* SPARKC-318: Nested columns in an MBean cannot be null
+
+1.6.10
+* Fix reading null UDTs into POJOs (SPARKC-426)
+* Improvements in JWCT Performance and Retry Behavior (SPARKC-507)
+* Fix TTL and WRITE time when used with Delete queries (SPARKC-505)
+* Error message for WriteTime exception typo corrected
+
+1.6.9
+* Fix Shuffling of a Set in Local Node FirstPolicy (SPARKC-496)
+
+1.6.8
+* Fix ReplicaPartitioner Endpoint Call (SPARKC-485)
+* MultipleRetryPolicy should retry with null (SPARKC-494)
+
+1.6.7
+* Protect against overflows in Size Estimates (SPARKC-492)
+* Confirm truncation with datasource writes (SPARKC-472)
+
+1.6.6
+* Allow Writes to Static Columns and Partition Keys (SPARKC-470)
+* SessionProxy Should Proxy all Runtime Interfaces (SPARKC-476)
+* Always Use Codec Cache When Reading from Driver Rows (SPARKC-473)
 
 1.6.5
 * Optimize Spark Sql Count(*) with CassandraCount (SPARKC-412)

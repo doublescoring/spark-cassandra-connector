@@ -2,18 +2,20 @@ package com.datastax.spark.connector.sql
 
 import scala.concurrent.Future
 
-import com.datastax.spark.connector.util.Logging
 import org.apache.spark.sql.SaveMode._
 import org.apache.spark.sql.cassandra.{AnalyzedPredicates, CassandraPredicateRules, CassandraSourceRelation, TableRef}
 import org.apache.spark.sql.sources.{EqualTo, Filter}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.scalatest.BeforeAndAfterEach
-
+import com.datastax.spark.connector._
 import com.datastax.spark.connector.SparkCassandraITFlatSpecBase
 import com.datastax.spark.connector.cql.{CassandraConnector, TableDef}
 import com.datastax.spark.connector.embedded.YamlTransformations
 import com.datastax.spark.connector.util.Logging
 import org.apache.spark.SparkConf
+import com.datastax.spark.connector.rdd.CassandraTableScanRDD
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.execution.RowDataSourceScanExec
 import org.apache.spark.sql.types.{IntegerType, StructField}
 
 class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with Logging with BeforeAndAfterEach {
@@ -35,6 +37,10 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with Logging 
         session.execute(s"""INSERT INTO $ks.test1 (a, b, c, d, e, f, g, h) VALUES (1, 2, 1, 1, 2, 2, 1, 2)""")
         session.execute(s"""INSERT INTO $ks.test1 (a, b, c, d, e, f, g, h) VALUES (1, 2, 1, 2, 1, 2, 2, 1)""")
         session.execute(s"""INSERT INTO $ks.test1 (a, b, c, d, e, f, g, h) VALUES (1, 2, 1, 2, 2, 2, 2, 2)""")
+      },
+
+      Future {
+        session.execute(s"CREATE TABLE $ks.test_rowwriter (a INT PRIMARY KEY, b INT)")
       },
 
       Future {
@@ -119,7 +125,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with Logging 
   }
 
   override def afterEach(): Unit ={
-     sc.setLocalProperty(CassandraSourceRelation.AdditionalCassandraPushDownRulesParam.name, null)
+    sc.setLocalProperty(CassandraSourceRelation.AdditionalCassandraPushDownRulesParam.name, null)
   }
 
   def createTempTable(keyspace: String, table: String, tmpTable: String) = {
@@ -130,7 +136,8 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with Logging 
         |OPTIONS (
         | table "$table",
         | keyspace "$keyspace",
-        | pushdown "$pushDown")
+        | pushdown "$pushDown",
+        | confirm.truncate "true")
       """.stripMargin.replaceAll("\n", " "))
   }
 
@@ -190,11 +197,16 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with Logging 
       .write
       .format("org.apache.spark.sql.cassandra")
       .mode(Overwrite)
-      .options(Map("table" -> "test_insert2", "keyspace" -> ks))
+      .options(Map("table" -> "test_insert2", "keyspace" -> ks, "confirm.truncate" -> "true"))
       .save()
     createTempTable(ks, "test_insert2", "insertTable2")
     sparkSession.sql("SELECT * FROM insertTable2").collect() should have length 1
     sparkSession.sql("DROP VIEW insertTable2")
+  }
+
+  // This test is just to make sure at runtime the implicit for RDD[Row] can be found
+  it should "implicitly generate a rowWriter from it's RDD form" in {
+    sparkSession.sql("SELECT a, b from tmpTable").rdd.saveToCassandra(ks, "test_rowwriter")
   }
 
   it should "allow to filter a table" in {
@@ -221,7 +233,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with Logging 
     df.write
       .format("org.apache.spark.sql.cassandra")
       .mode(Overwrite)
-      .options(Map("table" -> "df_test", "keyspace" -> ks))
+      .options(Map("table" -> "df_test", "keyspace" -> ks, "confirm.truncate" -> "true"))
       .save()
     cassandraTable(TableRef("df_test", ks)).collect() should have length 1
   }
@@ -236,9 +248,30 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with Logging 
     df.write
       .format("org.apache.spark.sql.cassandra")
       .mode(Overwrite)
-      .options(Map("table" -> "df_test2", "keyspace" -> ks))
+      .options(Map("table" -> "df_test2", "keyspace" -> ks, "confirm.truncate" -> "true"))
       .save()
     cassandraTable(TableRef("df_test2", ks)).collect() should have length 1
+  }
+
+  it should "throws exception during overwriting a table when confirm.truncate is false" in {
+    val test_df = TestPartialColumns(1400820884, "Firefox", 123242)
+    val ss = sparkSession
+    import ss.implicits._
+
+    val df = sc.parallelize(Seq(test_df)).toDF
+
+    val message = intercept[UnsupportedOperationException] {
+      df.write
+        .format("org.apache.spark.sql.cassandra")
+        .mode(Overwrite)
+        .options(Map("table" -> "df_test2", "keyspace" -> ks, "confirm.truncate" -> "false"))
+        .save()
+    }.getMessage
+
+    assert(
+      message.contains("You are attempting to use overwrite mode"),
+      "Exception should be thrown when  attempting to overwrite a table if confirm.truncate is false")
+
   }
 
   it should "apply user custom predicates which erase basic pushdowns" in {
@@ -267,11 +300,31 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with Logging 
       .options(Map("keyspace" -> ks, "table" -> "test1"))
       .load().filter("a=1 and b=2 and c=1 and e=1")
 
-    val qp = df.queryExecution
-      .executedPlan
-      .children(0)
-      .children(0)
-    qp.toString should include ("EqualTo(a,1), EqualTo(b,2), EqualTo(c,1)")
+    def getSourceRDD(rdd: RDD[_]): RDD[_] = {
+      if (rdd.dependencies.nonEmpty)
+        getSourceRDD(rdd.dependencies.head.rdd)
+      else
+        rdd
+    }
+
+    val cassandraTableScanRDD = getSourceRDD(
+      df.queryExecution
+        .executedPlan
+        .collectLeaves().head // Get Source
+        .asInstanceOf[RowDataSourceScanExec]
+        .rdd
+    ).asInstanceOf[CassandraTableScanRDD[_]]
+
+    val pushedWhere = cassandraTableScanRDD.where
+    val predicates = pushedWhere.predicates.head.split("AND").map(_.trim)
+    val values = pushedWhere.values
+    val pushedPredicates = predicates.zip(values)
+    pushedPredicates should contain allOf(
+      ("\"a\" = ?", 1),
+      ("\"b\" = ?", 2),
+      ("\"c\" = ?", 1),
+      ("\"e\" = ?", 1)
+    )
   }
 
   it should "pass through local conf properties" in {
@@ -285,8 +338,8 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with Logging 
       .options(Map("keyspace" -> ks, "table" -> "test1", PushdownUsesConf.testKey -> "Don't Remove"))
       .load().filter("g=1 and h=1")
 
+    // Will throw an exception if local key is not set
     val qp = df.queryExecution.executedPlan
-    qp.constraints should not be empty
 
     val df2 = sparkSession
       .read
@@ -295,8 +348,9 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with Logging 
       .load().filter("g=1 and h=1")
 
 
-    val qp2 = df2.queryExecution.executedPlan
-    qp2.constraints shouldBe empty
+    intercept[IllegalAccessException] {
+      df2.explain()
+    }
   }
 
   it should "adjust underscore column names to camelcase when explicitly told to" in {
@@ -432,10 +486,10 @@ object PushdownUsesConf extends CassandraPredicateRules {
     predicates: AnalyzedPredicates,
     tableDef: TableDef,
     conf: SparkConf): AnalyzedPredicates = {
-      if (conf.get(testKey, notSet) == notSet){
-        AnalyzedPredicates(Set.empty, Set.empty)
-      } else {
+      if (conf.contains(testKey)) {
         predicates
+      } else {
+        throw new IllegalAccessException(s"Conf did not contain $testKey")
       }
   }
 }
