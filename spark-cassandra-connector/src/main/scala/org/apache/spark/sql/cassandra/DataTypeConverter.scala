@@ -38,18 +38,27 @@ object DataTypeConverter extends Logging {
   )
 
   /** Convert Cassandra data type to Catalyst data type */
-  def catalystDataType(cassandraType: connector.types.ColumnType[_], nullable: Boolean): catalystTypes.DataType = {
+  def catalystDataType(
+    cassandraType: connector.types.ColumnType[_],
+    nullable: Boolean,
+    columnNameToStructField: String => String): catalystTypes.DataType = {
 
     def catalystStructField(field: UDTFieldDef): StructField =
-      StructField(field.columnName, catalystDataType(field.columnType, nullable = true), nullable = true)
+      StructField(
+        columnNameToStructField(field.columnName),
+        catalystDataType(field.columnType, nullable = true, columnNameToStructField),
+        nullable = true)
 
     def catalystStructFieldFromTuple(field: TupleFieldDef): StructField =
-      StructField(field.index.toString, catalystDataType(field.columnType, nullable = true), nullable = true)
+      StructField(
+        field.index.toString,
+        catalystDataType(field.columnType, nullable = true, columnNameToStructField),
+        nullable = true)
 
     cassandraType match {
-      case connector.types.SetType(et)                => catalystTypes.ArrayType(catalystDataType(et, nullable), nullable)
-      case connector.types.ListType(et)               => catalystTypes.ArrayType(catalystDataType(et, nullable), nullable)
-      case connector.types.MapType(kt, vt)            => catalystTypes.MapType(catalystDataType(kt, nullable), catalystDataType(vt, nullable), nullable)
+      case connector.types.SetType(et)                => catalystTypes.ArrayType(catalystDataType(et, nullable, columnNameToStructField), nullable)
+      case connector.types.ListType(et)               => catalystTypes.ArrayType(catalystDataType(et, nullable, columnNameToStructField), nullable)
+      case connector.types.MapType(kt, vt)            => catalystTypes.MapType(catalystDataType(kt, nullable, columnNameToStructField), catalystDataType(vt, nullable, columnNameToStructField), nullable)
       case connector.types.UserDefinedType(_, fields) => catalystTypes.StructType(fields.map(catalystStructField))
       case connector.types.TupleType(fields @ _* )    => catalystTypes.StructType(fields.map(catalystStructFieldFromTuple))
       case connector.types.VarIntType                 =>
@@ -71,7 +80,7 @@ object DataTypeConverter extends Logging {
   }
 
   /** Create a Catalyst StructField from a Cassandra Column */
-  def toStructField(column: ColumnDef): StructField =
-    StructField(column.columnName, catalystDataType(column.columnType, nullable = true))
+  def toStructField(column: ColumnDef, columnNameToStructField: String => String = identity): StructField =
+    StructField(column.columnName, catalystDataType(column.columnType, nullable = true, columnNameToStructField))
 
 }

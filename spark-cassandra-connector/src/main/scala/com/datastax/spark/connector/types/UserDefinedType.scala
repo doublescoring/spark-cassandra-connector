@@ -10,14 +10,18 @@ import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import com.datastax.driver.core.{UDTValue => DriverUDTValue, UserType, DataType}
 import com.datastax.spark.connector.{ColumnName, UDTValue}
 import com.datastax.spark.connector.cql.{StructDef, FieldDef}
+import com.datastax.spark.connector.mapper.ColumnMapperConvention
 import com.datastax.spark.connector.util.CodecRegistryUtil
 
 /** A Cassandra user defined type field metadata. It consists of a name and an associated column type.
   * The word `column` instead of `field` is used in member names because we want to treat UDT field
   * entries in the same way as table columns, so that they are mappable to case classes.
   * This is also the reason why this class extends `FieldDef`*/
-case class UDTFieldDef(columnName: String, columnType: ColumnType[_]) extends FieldDef {
-  override lazy val ref = ColumnName(columnName)
+case class UDTFieldDef(
+  columnName: String,
+  columnType: ColumnType[_],
+  structFieldName: Option[String] = None) extends FieldDef {
+  override lazy val ref = ColumnName(columnName, structFieldName)
 }
 
 /** A Cassandra user defined type metadata.
@@ -31,6 +35,7 @@ case class UserDefinedType(name: String, columns: IndexedSeq[UDTFieldDef])
   def scalaTypeTag = implicitly[TypeTag[UDTValue]]
   def cqlTypeName = name
 
+  val structFielsNames = columns.map(c => c.structFieldName.getOrElse(c.columnName))
   val fieldConverters = columnTypes.map(_.converterToCassandra)
 
   def converterToCassandra = new NullableTypeConverter[UDTValue] {
@@ -48,7 +53,7 @@ case class UserDefinedType(name: String, columns: IndexedSeq[UDTFieldDef])
       case dfGenericRow: GenericRowWithSchema =>
         val columnValues =
          for (i <- columns.indices) yield {
-           val columnName = columnNames(i)
+           val columnName = structFielsNames(i)
            val columnConverter = fieldConverters(i)
            val dfSchemaIndex = dfGenericRow.schema.fieldIndex(columnName)
            val columnValue = columnConverter.convert(dfGenericRow.get(dfSchemaIndex))
@@ -69,12 +74,12 @@ object UserDefinedType {
 
   /** Converts connector's UDTValue to Cassandra Java Driver UDTValue.
     * Used when saving data to Cassandra.  */
-  class DriverUDTValueConverter(dataType: UserType)
+  class DriverUDTValueConverter(dataType: UserType, columnNameToStructField: String => String)
     extends TypeConverter[DriverUDTValue] {
 
     val fieldNames = dataType.getFieldNames.toIndexedSeq
     val fieldTypes = fieldNames.map(dataType.getFieldType)
-    val fieldConverters = fieldTypes.map(ColumnType.converterToCassandra)
+    val fieldConverters = fieldTypes.map(ColumnType.converterToCassandra(_, columnNameToStructField))
 
     override def targetTypeTag = implicitly[TypeTag[DriverUDTValue]]
 
@@ -99,9 +104,9 @@ object UserDefinedType {
 
   }
 
-  def driverUDTValueConverter(dataType: DataType) =
+  def driverUDTValueConverter(dataType: DataType, columnNameToStructField: String => String) =
     dataType match {
-      case dt: UserType => new DriverUDTValueConverter(dt)
+      case dt: UserType => new DriverUDTValueConverter(dt, columnNameToStructField)
       case _            => throw new IllegalArgumentException("UserType expected.")
     }
 

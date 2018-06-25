@@ -103,7 +103,7 @@ object TupleType {
     extends TypeConverter[DriverTupleValue] {
 
     val fieldTypes = dataType.getComponentTypes
-    val fieldConverters = fieldTypes.map(ColumnType.converterToCassandra)
+    val fieldConverters = fieldTypes.map(ColumnType.converterToCassandra(_, identity))
 
     override def targetTypeTag = typeTag[DriverTupleValue]
 

@@ -28,7 +28,7 @@ implicit
   currentType: ClassTag[T],
   @transient rwf: RowWriterFactory[T]) extends Partitioner {
 
-  val tableDef = Schema.tableFromCassandra(connector, keyspace, table)
+  val tableDef = Schema.tableFromCassandra(connector, keyspace, table, identity)
   val rowWriter = implicitly[RowWriterFactory[T]].rowWriter(
     tableDef,
     partitionKeyMapper.selectFrom(tableDef)

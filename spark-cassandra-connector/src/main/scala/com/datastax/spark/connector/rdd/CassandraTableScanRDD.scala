@@ -309,7 +309,7 @@ class CassandraTableScanRDD[R] private[connector](
       val stmt = session.prepare(cql).setIdempotent(true)
       stmt.setConsistencyLevel(consistencyLevel)
       val converters = stmt.getVariables
-        .map(v => ColumnType.converterToCassandra(v.getType))
+        .map(v => ColumnType.converterToCassandra(v.getType, readConf.columnNameToStructField))
         .toArray
       val convertedValues =
         for ((value, converter) <- values zip converters)

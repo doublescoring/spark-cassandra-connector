@@ -47,7 +47,8 @@ trait CassandraTableRowReaderProvider[R] {
   lazy val rowReader: RowReader[R] =
     rowReaderFactory.rowReader(tableDef, columnNames.selectFrom(tableDef))
 
-  lazy val tableDef: TableDef = Schema.tableFromCassandra(connector, keyspaceName, tableName)
+  lazy val tableDef: TableDef =
+    Schema.tableFromCassandra(connector, keyspaceName, tableName, readConf.columnNameToStructField)
 
   protected def checkColumnsExistence(columns: Seq[ColumnRef]): Seq[ColumnRef] = {
     val allColumnNames = tableDef.columns.map(_.columnName).toSet

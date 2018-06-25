@@ -2,8 +2,9 @@ package com.datastax.spark.connector.writer
 
 import com.datastax.driver.core.{ConsistencyLevel, DataType}
 import com.datastax.spark.connector.cql.{ColumnDef, RegularColumn}
+import com.datastax.spark.connector.mapper.ColumnMapperConvention
 import com.datastax.spark.connector.types.ColumnType
-import com.datastax.spark.connector.util.{ConfigParameter, ConfigCheck}
+import com.datastax.spark.connector.util.{ConfigCheck, ConfigParameter}
 import com.datastax.spark.connector.{BatchSize, BytesInBatch, RowsInBatch}
 import org.apache.commons.configuration.ConfigurationException
 import org.apache.spark.SparkConf
@@ -33,7 +34,8 @@ case class WriteConf(batchSize: BatchSize = BatchSize.Automatic,
                      throughputMiBPS: Double = WriteConf.ThroughputMiBPSParam.default,
                      ttl: TTLOption = TTLOption.defaultValue,
                      timestamp: TimestampOption = TimestampOption.defaultValue,
-                     taskMetricsEnabled: Boolean = WriteConf.TaskMetricsParam.default) {
+                     taskMetricsEnabled: Boolean = WriteConf.TaskMetricsParam.default,
+                     camelcase: Boolean = WriteConf.CamelcaseParam.default) {
 
   private[writer] val optionPlaceholders: Seq[String] = Seq(ttl, timestamp).collect {
     case WriteOption(PerRowWriteOptionValue(placeholder)) => placeholder
@@ -42,7 +44,8 @@ case class WriteConf(batchSize: BatchSize = BatchSize.Automatic,
   private[writer] val optionsAsColumns: (String, String) => Seq[ColumnDef] = { (keyspace, table) =>
     def toRegularColDef(opt: WriteOption[_], dataType: DataType) = opt match {
       case WriteOption(PerRowWriteOptionValue(placeholder)) =>
-        Some(ColumnDef(placeholder, RegularColumn, ColumnType.fromDriverType(dataType)))
+        val columnType = ColumnType.fromDriverType(dataType, ColumnMapperConvention.underscoreToCamelCase)
+        Some(ColumnDef(placeholder, RegularColumn, columnType))
       case _ => None
     }
 
@@ -50,6 +53,9 @@ case class WriteConf(batchSize: BatchSize = BatchSize.Automatic,
   }
 
   val throttlingEnabled = throughputMiBPS < WriteConf.ThroughputMiBPSParam.default
+
+  val columnNameToStructField: String => String =
+    if(camelcase) ColumnMapperConvention.underscoreToCamelCase else identity
 }
 
 
@@ -154,6 +160,14 @@ object WriteConf {
     description = """Sets whether to record connector specific metrics on write"""
   )
 
+  val CamelcaseParam = ConfigParameter[Boolean] (
+    name = "spark.cassandra.output.camelcase",
+    section = ReferenceSection,
+    default = false,
+    description =
+      """Enables column names conversion to camelcase on write"""
+  )
+
   // Whitelist for allowed Write environment variables
   val Properties: Set[ConfigParameter[_]] = Set(
     BatchSizeBytesParam,
@@ -167,7 +181,8 @@ object WriteConf {
     ThroughputMiBPSParam,
     TTLParam,
     TimestampParam,
-    TaskMetricsParam
+    TaskMetricsParam,
+    CamelcaseParam
   )
 
   def fromSparkConf(conf: SparkConf): WriteConf = {
@@ -224,6 +239,8 @@ object WriteConf {
       else
         TimestampOption.constant(timestampMicros)
 
+    val camelcase = conf.getBoolean(CamelcaseParam.name, CamelcaseParam.default)
+
     WriteConf(
       batchSize = batchSize,
       batchGroupingBufferSize = batchBufferSize,
@@ -235,7 +252,9 @@ object WriteConf {
       ttl = ttlOption,
       timestamp = timestampOption,
       ignoreNulls = ignoreNulls,
-      ifNotExists = ifNotExists)
+      ifNotExists = ifNotExists,
+      camelcase = camelcase
+    )
   }
 
 }

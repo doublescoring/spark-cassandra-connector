@@ -125,9 +125,10 @@ object ColumnDef {
 
   def apply(
     column: ColumnMetadata,
-    columnRole: ColumnRole): ColumnDef = {
-
-    val columnType = ColumnType.fromDriverType(column.getType)
+    columnRole: ColumnRole,
+    columnNameToStructField: String => String
+  ): ColumnDef = {
+    val columnType = ColumnType.fromDriverType(column.getType, columnNameToStructField)
     ColumnDef(column.getName, columnRole, columnType)
   }
 }
@@ -244,24 +245,30 @@ case class Schema(clusterName: String, keyspaces: Set[KeyspaceDef]) {
 
 object Schema extends Logging {
 
-   private def fetchPartitionKey(table: AbstractTableMetadata): Seq[ColumnDef] = {
-    for (column <- table.getPartitionKey) yield { ColumnDef(column, PartitionKeyColumn) }
+   private def fetchPartitionKey(
+     table: AbstractTableMetadata,
+     columnNameToStructField: String => String): Seq[ColumnDef] = {
+    for (column <- table.getPartitionKey) yield { ColumnDef(column, PartitionKeyColumn, columnNameToStructField) }
   }
 
-  private def fetchClusteringColumns(table: AbstractTableMetadata): Seq[ColumnDef] = {
+  private def fetchClusteringColumns(
+    table: AbstractTableMetadata,
+    columnNameToStructField: String => String): Seq[ColumnDef] = {
     for ((column, index) <- table.getClusteringColumns.zipWithIndex) yield {
-      ColumnDef(column, ClusteringColumn(index))
+      ColumnDef(column, ClusteringColumn(index), columnNameToStructField)
     }
   }
 
-  private def fetchRegularColumns(table: AbstractTableMetadata): Seq[ColumnDef] = {
+  private def fetchRegularColumns(
+    table: AbstractTableMetadata,
+    columnNameToStructField: String => String): Seq[ColumnDef] = {
     val primaryKey = table.getPrimaryKey.toSet
     val regularColumns = table.getColumns.filterNot(primaryKey.contains)
     for (column <- regularColumns) yield {
       if (column.isStatic)
-        ColumnDef(column, StaticColumn)
+        ColumnDef(column, StaticColumn, columnNameToStructField)
       else
-        ColumnDef(column, RegularColumn)
+        ColumnDef(column, RegularColumn, columnNameToStructField)
     }
   }
 
@@ -273,7 +280,8 @@ object Schema extends Logging {
   def fromCassandra(
     connector: CassandraConnector,
     keyspaceName: Option[String] = None,
-    tableName: Option[String] = None): Schema = {
+    tableName: Option[String] = None,
+    columnNameToStructField: String => String = identity): Schema = {
 
     def isKeyspaceSelected(keyspace: KeyspaceMetadata): Boolean =
       keyspaceName match {
@@ -290,9 +298,9 @@ object Schema extends Logging {
     def fetchTables(keyspace: KeyspaceMetadata): Set[TableDef] =
       for (table <- (keyspace.getTables.toSet ++ keyspace.getMaterializedViews.toSet)
         if isTableSelected(table)) yield {
-          val partitionKey = fetchPartitionKey(table)
-          val clusteringColumns = fetchClusteringColumns(table)
-          val regularColumns = fetchRegularColumns(table)
+          val partitionKey = fetchPartitionKey(table, columnNameToStructField)
+          val clusteringColumns = fetchClusteringColumns(table, columnNameToStructField)
+          val regularColumns = fetchRegularColumns(table, columnNameToStructField)
           val indexDefs = getIndexDefs(table)
 
           val isView = table match {
@@ -347,9 +355,10 @@ object Schema extends Logging {
   def tableFromCassandra(
     connector: CassandraConnector,
     keyspaceName: String,
-    tableName: String): TableDef = {
+    tableName: String,
+    columnNameToStructField: String => String): TableDef = {
 
-    fromCassandra(connector, Some(keyspaceName), Some(tableName)).tables.headOption match {
+    fromCassandra(connector, Some(keyspaceName), Some(tableName), columnNameToStructField).tables.headOption match {
       case Some(t) => t
       case None =>
         val metadata: Metadata = connector.withClusterDo(_.getMetadata)

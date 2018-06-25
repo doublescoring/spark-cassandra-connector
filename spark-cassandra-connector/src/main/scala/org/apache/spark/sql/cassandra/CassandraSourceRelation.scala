@@ -50,10 +50,12 @@ private[cassandra] class CassandraSourceRelation(
   private[cassandra] val tableDef = Schema.tableFromCassandra(
     connector,
     tableRef.keyspace,
-    tableRef.table)
+    tableRef.table,
+    readConf.columnNameToStructField
+  )
 
   override def schema: StructType = {
-    userSpecifiedSchema.getOrElse(StructType(tableDef.columns.map(toStructField)))
+    userSpecifiedSchema.getOrElse(StructType(tableDef.columns.map(toStructField(_, readConf.columnNameToStructField))))
   }
 
   override def insert(data: DataFrame, overwrite: Boolean): Unit = {

@@ -96,29 +96,53 @@ object ColumnType {
     * This guarantees that if T is Serializable, the collection is Serializable. */
   private def unlazify[T](seq: IndexedSeq[T]): IndexedSeq[T] = IndexedSeq(seq: _*)
 
-  private def fields(dataType: DriverUserType): IndexedSeq[UDTFieldDef] = unlazify {
-    for (field <- dataType.iterator().toIndexedSeq) yield
-      UDTFieldDef(field.getName, fromDriverType(field.getType))
+  private def fields(
+    dataType: DriverUserType,
+    columnNameToStructField: String => String): IndexedSeq[UDTFieldDef] = unlazify {
+    for (field <- dataType.iterator().toIndexedSeq) yield {
+      UDTFieldDef(
+        field.getName,
+        fromDriverType(field.getType, columnNameToStructField),
+        Option(columnNameToStructField(field.getName))
+      )
+    }
   }
 
   private def fields(dataType: DriverTupleType): IndexedSeq[TupleFieldDef] = unlazify {
     for ((field, index) <- dataType.getComponentTypes.toIndexedSeq.zipWithIndex) yield
-      TupleFieldDef(index, fromDriverType(field))
+      TupleFieldDef(index, fromDriverType(field, identity))
   }
 
-  private def typeArg(dataType: DataType, idx: Int) = fromDriverType(dataType.getTypeArguments.get(idx))
+  private def typeArg(dataType: DataType, idx: Int, columnNameToStructField: String => String) =
+    fromDriverType(dataType.getTypeArguments.get(idx), columnNameToStructField)
 
-  private val standardFromDriverRow: PartialFunction[DataType, ColumnType[_]] = {
-    case listType if listType.getName == DataType.Name.LIST => ListType(typeArg(listType, 0))
-    case setType if setType.getName == DataType.Name.SET => SetType(typeArg(setType, 0))
-    case mapType if mapType.getName == DataType.Name.MAP => MapType(typeArg(mapType, 0), typeArg(mapType, 1))
-    case userType: DriverUserType => UserDefinedType(userType.getTypeName, fields(userType))
-    case tupleType: DriverTupleType => TupleType(fields(tupleType): _*)
+  private def standardFromDriverRow(
+    columnNameToStructField: String => String): PartialFunction[DataType, ColumnType[_]] = {
+    case listType if listType.getName == DataType.Name.LIST =>
+      ListType(typeArg(listType, 0, columnNameToStructField))
+    case setType if setType.getName == DataType.Name.SET =>
+      SetType(typeArg(setType, 0, columnNameToStructField))
+    case mapType if mapType.getName == DataType.Name.MAP =>
+      MapType(typeArg(mapType, 0, columnNameToStructField), typeArg(mapType, 1, columnNameToStructField))
+    case tupleType: DriverTupleType =>
+      TupleType(fields(tupleType): _*)
+  }
+
+  private val primitiveFromDriverRow: PartialFunction[DataType, ColumnType[_]] = {
     case dataType => primitiveTypeMap(dataType)
   }
 
-  def fromDriverType(dataType: DataType): ColumnType[_] = {
-    val getColumnType: PartialFunction[DataType, ColumnType[_]] = customFromDriverRow orElse standardFromDriverRow
+  private def udtFromDriverRow(columnNameToStructField: String => String): PartialFunction[DataType, ColumnType[_]] = {
+    case userType: DriverUserType => UserDefinedType(userType.getTypeName, fields(userType, columnNameToStructField))
+  }
+
+  def fromDriverType(dataType: DataType, columnNameToStructField: String => String): ColumnType[_] = {
+    val getColumnType: PartialFunction[DataType, ColumnType[_]] =
+      customFromDriverRow orElse
+        standardFromDriverRow(columnNameToStructField) orElse
+        udtFromDriverRow(columnNameToStructField) orElse
+        primitiveFromDriverRow
+
     getColumnType(dataType)
   }
 
@@ -215,18 +239,18 @@ object ColumnType {
 
   /** Returns a converter that converts values to the type of this column expected by the
     * Cassandra Java driver when saving the row.*/
-  def converterToCassandra(dataType: DataType)
+  def converterToCassandra(dataType: DataType, columnNameToStructField: String => String)
       : TypeConverter[_ <: AnyRef] = {
 
-    val typeArgs = dataType.getTypeArguments.map(converterToCassandra)
+    val typeArgs = dataType.getTypeArguments.map(converterToCassandra(_, columnNameToStructField))
     val converter: TypeConverter[_] =
       dataType.getName match {
         case DataType.Name.LIST => TypeConverter.javaArrayListConverter(typeArgs(0))
         case DataType.Name.SET => TypeConverter.javaHashSetConverter(typeArgs(0))
         case DataType.Name.MAP => TypeConverter.javaHashMapConverter(typeArgs(0), typeArgs(1))
-        case DataType.Name.UDT => UserDefinedType.driverUDTValueConverter(dataType)
+        case DataType.Name.UDT => UserDefinedType.driverUDTValueConverter(dataType, columnNameToStructField)
         case DataType.Name.TUPLE => TupleType.driverTupleValueConverter(dataType)
-        case _ => fromDriverType(dataType).converterToCassandra
+        case _ => fromDriverType(dataType, columnNameToStructField).converterToCassandra
       }
 
     // make sure it is always wrapped in OptionToNullConverter, but don't wrap twice:

@@ -13,14 +13,14 @@ class CustomFromDriverSpec extends SparkCassandraITFlatSpecBase {
     .set(ColumnTypeConf.CustomDriverTypeParam.name, "com.datastax.spark.connector.rdd.DumbConverter"))
 
   "Custom fromDrivers converters " should "be loadable" in {
-    ColumnType.fromDriverType(DataType.custom("Dummy")) should be(types.IntType)
+    ColumnType.fromDriverType(DataType.custom("Dummy"), identity) should be(types.IntType)
     for ((driverType, expectedType) <- ColumnType.primitiveTypeMap) {
-      ColumnType.fromDriverType(driverType) should be(expectedType)
+      ColumnType.fromDriverType(driverType, identity) should be(expectedType)
     }
   }
 
   it should "support SparkSQL" in {
-    DataTypeConverter.catalystDataType(types.IntType, true) should be(catalystTypes.StringType)
+    DataTypeConverter.catalystDataType(types.IntType, true, identity) should be(catalystTypes.StringType)
   }
 }
 

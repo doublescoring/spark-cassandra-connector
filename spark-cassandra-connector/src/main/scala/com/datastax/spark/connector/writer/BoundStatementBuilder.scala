@@ -18,7 +18,7 @@ private[connector] class BoundStatementBuilder[T](
 
   private val columnNames = rowWriter.columnNames.toIndexedSeq
   private val columnTypes = columnNames.map(preparedStmt.getVariables.getType)
-  private val converters = columnTypes.map(ColumnType.converterToCassandra(_))
+  private val converters = columnTypes.map(ColumnType.converterToCassandra(_, identity))
   private val buffer = Array.ofDim[Any](columnNames.size)
 
   require(ignoreNulls == false || protocolVersion.toInt >= ProtocolVersion.V4.toInt,
@@ -88,7 +88,7 @@ private[connector] class BoundStatementBuilder[T](
     prefixIndex: Int <- 0 until prefixVals.length
     prefixVal = prefixVals(prefixIndex)
     prefixType = preparedStmt.getVariables.getType(prefixIndex)
-    prefixConverter =  ColumnType.converterToCassandra(prefixType)
+    prefixConverter =  ColumnType.converterToCassandra(prefixType, identity)
   } yield prefixConverter.convert(prefixVal)
 
   /** Creates `BoundStatement` from the given data item */

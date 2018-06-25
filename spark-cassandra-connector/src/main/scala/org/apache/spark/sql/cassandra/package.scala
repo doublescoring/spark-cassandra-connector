@@ -1,7 +1,6 @@
 package org.apache.spark.sql
 
 import scala.language.implicitConversions
-
 import com.datastax.spark.connector.util.ConfigParameter
 
 package object cassandra {
@@ -15,12 +14,28 @@ package object cassandra {
       table: String,
       keyspace: String,
       cluster: String = CassandraSourceRelation.defaultClusterName,
-      pushdownEnable: Boolean = true): Map[String, String] =
-    Map(
+      pushdownEnable: Boolean = true,
+      camelcaseEnable: Boolean = false
+  ): Map[String, String] = {
+
+    val options: Seq[(String, String)] = Seq(
       DefaultSource.CassandraDataSourceClusterNameProperty -> cluster,
       DefaultSource.CassandraDataSourceKeyspaceNameProperty -> keyspace,
       DefaultSource.CassandraDataSourceTableNameProperty -> table,
       DefaultSource.CassandraDataSourcePushdownEnableProperty -> pushdownEnable.toString)
+
+    val camelcaseOptions: Seq[(String, String)] = if(camelcaseEnable) {
+      Seq(
+        DefaultSource.CassandraInputCamelcaseProperty -> camelcaseEnable.toString,
+        DefaultSource.CassandraOutputCamelcaseProperty -> camelcaseEnable.toString,
+        DefaultSource.CassandraDataSourceCamelcaseProperty -> camelcaseEnable.toString
+      )
+    } else {
+      Seq.empty
+    }
+
+    Map(options ++ camelcaseOptions: _*)
+  }
 
   implicit class DataFrameReaderWrapper(val dfReader: DataFrameReader) extends AnyVal {
     /** Sets the format used to access Cassandra through Connector */
@@ -33,9 +48,10 @@ package object cassandra {
         table: String,
         keyspace: String,
         cluster: String = CassandraSourceRelation.defaultClusterName,
-        pushdownEnable: Boolean = true): DataFrameReader = {
+        pushdownEnable: Boolean = true,
+        camelcaseEnable: Boolean = false): DataFrameReader = {
 
-      cassandraFormat.options(cassandraOptions(table, keyspace, cluster, pushdownEnable))
+      cassandraFormat.options(cassandraOptions(table, keyspace, cluster, pushdownEnable, camelcaseEnable))
     }
   }
 
@@ -50,9 +66,11 @@ package object cassandra {
         table: String,
         keyspace: String,
         cluster: String = CassandraSourceRelation.defaultClusterName,
-        pushdownEnable: Boolean = true): DataFrameWriter[T] = {
+        pushdownEnable: Boolean = true,
+        camelcaseEnable: Boolean = false
+    ): DataFrameWriter[T] = {
 
-      cassandraFormat.options(cassandraOptions(table, keyspace, cluster, pushdownEnable))
+      cassandraFormat.options(cassandraOptions(table, keyspace, cluster, pushdownEnable, camelcaseEnable))
     }
   }
 

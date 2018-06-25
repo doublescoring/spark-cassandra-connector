@@ -1,7 +1,6 @@
 package com.datastax.spark.connector.sql
 
 import scala.concurrent.Future
-
 import org.apache.spark.sql.SaveMode._
 import org.apache.spark.sql.cassandra.{AnalyzedPredicates, CassandraPredicateRules, CassandraSourceRelation, TableRef}
 import org.apache.spark.sql.sources.{EqualTo, Filter}
@@ -109,6 +108,17 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with Logging 
           "VALUES (0,1,2,3,4,5,6)")
         session.execute(s"INSERT INTO $ks.df_camelcase_test (a, b_Ccc, ddd, e_f, g_h_, I_J, key) " +
           "VALUES (10,11,12,13,14,15,16)")
+      },
+
+      Future {
+        session.execute(s"""CREATE TYPE $ks.level_third (level_third_data FROZEN <list<text>>)""")
+        session.execute(s"""CREATE TYPE $ks.level_second (level_second_data FROZEN <list<level_third>>)""")
+        session.execute(
+          s"""
+             |CREATE TABLE $ks.level_first (
+             |  id text PRIMARY KEY,
+             |  level_first_data FROZEN <level_second>
+             |)""".stripMargin)
       }
     )
   }
@@ -401,7 +411,11 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with Logging 
     )).write
       .format("org.apache.spark.sql.cassandra")
       .mode(Overwrite)
-      .options(Map("table" -> "df_underscore_test", "keyspace" -> ks))
+      .options(Map(
+        "table" -> "df_underscore_test",
+        "keyspace" -> ks,
+        "confirm.truncate" -> "true"
+      ))
       .save()
 
     val content = cassandraTable(TableRef("df_underscore_test", ks)).collect()
@@ -417,7 +431,11 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with Logging 
     )).write
       .format("org.apache.spark.sql.cassandra")
       .mode(Overwrite)
-      .options(Map("table" -> "df_underscore_test", "keyspace" -> ks))
+      .options(Map(
+        "table" -> "df_underscore_test",
+        "keyspace" -> ks,
+        "confirm.truncate" -> "true"
+      ))
       .save()
 
     val content = cassandraTable(TableRef("df_underscore_test", ks)).collect()
@@ -438,6 +456,57 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with Logging 
         .save()
     }
   }
+
+  it should "write and read case class with nested udt" in {
+    val ss = sparkSession
+    import ss.implicits._
+    import CassandraDataSourceSpec._
+
+    val entity = LevelFirst("42", Some(LevelSecond(Some(Seq(LevelThird(Some(Seq("hello"))))))))
+
+    val df = sc.parallelize(Seq(entity)).toDF
+    df
+      .write
+      .format("org.apache.spark.sql.cassandra")
+      .options(Map(
+        "keyspace" -> ks,
+        "table" -> "main_entity",
+        "camelcase" -> "true",
+        "spark.cassandra.output.camelcase" -> "true"
+      ))
+      .save()
+
+    val firstEntity = ss
+      .read
+      .format("org.apache.spark.sql.cassandra")
+      .options(Map(
+        "keyspace" -> ks,
+        "table" -> "main_entity",
+        "camelcase" -> "true",
+        "spark.cassandra.input.camelcase" -> "true"
+      ))
+      .load()
+      .as[LevelFirst]
+      .head
+
+    firstEntity shouldEqual entity
+  }
+
+}
+
+object CassandraDataSourceSpec {
+  case class LevelFirst(
+    id: String,
+    levelFirstData: Option[LevelSecond] = None
+  )
+
+  case class LevelSecond(
+    levelSecondData: Option[Seq[LevelThird]] = None
+  )
+
+  case class LevelThird(
+    levelThirdData: Option[Seq[String]] = None
+  )
 }
 
 case class Test(epoch: Long, uri: String, browser: String, customer_id: Int)

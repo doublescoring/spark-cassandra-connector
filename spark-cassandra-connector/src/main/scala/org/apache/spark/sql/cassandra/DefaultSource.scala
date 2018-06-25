@@ -124,6 +124,8 @@ object DefaultSource {
   val CassandraDataSourcePushdownEnableProperty = "pushdown"
   val CassandraDataSourceConfirmTruncateProperty = "confirm.truncate"
   val CassandraDataSourceCamelcaseProperty = "camelcase"
+  val CassandraInputCamelcaseProperty = "spark.cassandra.input.camelcase"
+  val CassandraOutputCamelcaseProperty = "spark.cassandra.output.camelcase"
   val CassandraDataSourceProviderPackageName = DefaultSource.getClass.getPackage.getName
   val CassandraDataSourceProviderClassName = CassandraDataSourceProviderPackageName + ".DefaultSource"
 

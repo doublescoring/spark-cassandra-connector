@@ -59,7 +59,7 @@ object ReplicaLocator {
       tableName: String,
       partitionKeyMapper: ColumnSelector): ReplicaLocator[T] = {
 
-    val tableDef = Schema.tableFromCassandra(connector, keyspaceName, tableName)
+    val tableDef = Schema.tableFromCassandra(connector, keyspaceName, tableName, identity)
     val rowWriter = implicitly[RowWriterFactory[T]].rowWriter(
       tableDef,
       partitionKeyMapper.selectFrom(tableDef)

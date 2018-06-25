@@ -1,7 +1,8 @@
 package com.datastax.spark.connector.rdd
 
 import com.datastax.driver.core.ConsistencyLevel
-import com.datastax.spark.connector.util.{ConfigParameter, ConfigCheck, Logging}
+import com.datastax.spark.connector.mapper.ColumnMapperConvention
+import com.datastax.spark.connector.util.{ConfigCheck, ConfigParameter, Logging}
 import org.apache.spark.SparkConf
 
 /** Read settings for RDD
@@ -23,8 +24,12 @@ case class ReadConf(
   consistencyLevel: ConsistencyLevel = ReadConf.ConsistencyLevelParam.default,
   taskMetricsEnabled: Boolean = ReadConf.TaskMetricParam.default,
   parallelismLevel: Int = ReadConf.ParallelismLevelParam.default,
-  readsPerSec: Int = ReadConf.ReadsPerSecParam.default
-)
+  readsPerSec: Int = ReadConf.ReadsPerSecParam.default,
+  camelcase: Boolean = ReadConf.CamelcaseParam.default
+) {
+  val columnNameToStructField: String => String =
+    if(camelcase) ColumnMapperConvention.underscoreToCamelCase else identity
+}
 
 
 object ReadConf extends Logging {
@@ -93,6 +98,14 @@ object ReadConf extends Logging {
       """Sets max requests per core per second for joinWithCassandraTable and some Enterprise integrations"""
   )
 
+  val CamelcaseParam = ConfigParameter[Boolean] (
+    name = "spark.cassandra.input.camelcase",
+    section = ReferenceSection,
+    default = false,
+    description =
+      """Enables column names conversion to camelcase on read"""
+  )
+
   // Whitelist for allowed Read environment variables
   val Properties = Set(
     SplitCountParam,
@@ -102,11 +115,11 @@ object ReadConf extends Logging {
     SplitSizeInMBParam,
     TaskMetricParam,
     ThroughputJoinQueryPerSecParam,
-    ParallelismLevelParam
+    ParallelismLevelParam,
+    CamelcaseParam
   )
 
   def fromSparkConf(conf: SparkConf): ReadConf = {
-
     ConfigCheck.checkConfig(conf)
 
     val throughtputJoinQueryPerSec = conf.getOption(ThroughputJoinQueryPerSecParam.name)
@@ -136,7 +149,8 @@ object ReadConf extends Logging {
       readsPerSec = conf.getInt(ReadsPerSecParam.name,
         throughtputJoinQueryPerSec.getOrElse(ReadsPerSecParam.default)),
       parallelismLevel = conf.getInt(ParallelismLevelParam.name, ParallelismLevelParam.default),
-      splitCount = conf.getOption(SplitCountParam.name).map(_.toInt)
+      splitCount = conf.getOption(SplitCountParam.name).map(_.toInt),
+      camelcase = conf.getBoolean(CamelcaseParam.name, CamelcaseParam.default)
     )
   }
 

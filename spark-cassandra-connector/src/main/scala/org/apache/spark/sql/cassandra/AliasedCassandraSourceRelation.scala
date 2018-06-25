@@ -1,6 +1,6 @@
 package org.apache.spark.sql.cassandra
 
-import com.datastax.spark.connector.mapper.ColumnMapperConvention._
+import com.datastax.spark.connector.mapper.ColumnMapperConvention
 import com.datastax.spark.connector.util.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.cassandra.DataTypeConverter.toStructField
@@ -25,8 +25,10 @@ private[cassandra] class AliasedCassandraSourceRelation(
   with TableScan
   with Logging {
 
+  private val columnNameToStructField: String => String = ColumnMapperConvention.underscoreToCamelCase
+
   private lazy val columnsByAlias = cassandraSourceRelation.tableDef.columns.map(
-    col => (underscoreToCamelCase(col.columnName), col)).toMap
+    col => (columnNameToStructField(col.columnName), col)).toMap
 
   private lazy val aliasByColumnName = columnsByAlias.map({
     case (alias, column) => (column.columnName, alias)
@@ -66,7 +68,7 @@ private[cassandra] class AliasedCassandraSourceRelation(
 
   override def schema: StructType = {
     val columns = columnsByAlias.map { case (alias, column) => column.copy(columnName = alias) }
-    StructType(columns.map(toStructField).toSeq)
+    StructType(columns.map(toStructField(_, columnNameToStructField)).toSeq)
   }
 
   override def insert(data: DataFrame, overwrite: Boolean): Unit =
